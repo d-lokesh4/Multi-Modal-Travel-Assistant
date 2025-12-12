@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from agent import run_agent
 import json
+import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -47,6 +48,14 @@ def main():
         "- City images\n"
         "- Interactive weather charts"
     )
+    
+    # Show LangGraph visualization
+    st.sidebar.header("🔀 LangGraph Workflow")
+    graph_path = os.path.join(os.path.dirname(__file__), "..", "graph_visualization", "graph.png")
+    if os.path.exists(graph_path):
+        st.sidebar.image(graph_path, caption="Agent Workflow", use_container_width=True)
+    else:
+        st.sidebar.warning("Graph visualization not found")
 
 
 def display_results(result: dict):

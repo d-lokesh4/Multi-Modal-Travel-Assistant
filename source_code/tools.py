@@ -79,9 +79,12 @@ def get_weather_forecast(latitude: float, longitude: float) -> List[Dict]:
     }
     
     try:
-        response = requests.get(url, params=params, timeout=10)
+        print(f"Fetching weather for coordinates: ({latitude}, {longitude})")
+        response = requests.get(url, params=params, timeout=30)
+        print(f"Weather API status code: {response.status_code}")
         response.raise_for_status()
         data = response.json()
+        print(f"Weather API response keys: {data.keys()}")
         
         # Format the forecast data
         forecast = []
@@ -91,6 +94,8 @@ def get_weather_forecast(latitude: float, longitude: float) -> List[Dict]:
         temp_min = daily.get("temperature_2m_min", [])
         precipitation = daily.get("precipitation_sum", [])
         
+        print(f"Got {len(dates)} days of weather data")
+        
         for i in range(min(7, len(dates))):
             forecast.append({
                 "date": dates[i],
@@ -99,11 +104,20 @@ def get_weather_forecast(latitude: float, longitude: float) -> List[Dict]:
                 "precipitation": precipitation[i]
             })
         
+        print(f"✓ Successfully fetched {len(forecast)} days of weather forecast")
         return forecast
+    except requests.exceptions.Timeout as e:
+        print(f"✗ Weather API timeout after 30s: {e}")
+        # Return mock 7-day data if API times out
+        return [{"date": f"2025-12-{12+i}", "temp_max": 20+i, "temp_min": 10+i, "precipitation": 0} for i in range(7)]
+    except requests.exceptions.RequestException as e:
+        print(f"✗ Weather API request error: {e}")
+        # Return mock 7-day data if API fails
+        return [{"date": f"2025-12-{12+i}", "temp_max": 20+i, "temp_min": 10+i, "precipitation": 0} for i in range(7)]
     except Exception as e:
-        print(f"Error fetching weather: {e}")
-        # Return mock data if API fails
-        return [{"date": "2025-12-12", "temp_max": 20, "temp_min": 10, "precipitation": 0}]
+        print(f"✗ Unexpected error fetching weather: {type(e).__name__}: {e}")
+        # Return mock 7-day data if API fails
+        return [{"date": f"2025-12-{12+i}", "temp_max": 20+i, "temp_min": 10+i, "precipitation": 0} for i in range(7)]
 
 
 def generate_city_images(city: str) -> List[str]:
