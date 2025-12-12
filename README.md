@@ -2,6 +2,8 @@
 
 A LangGraph-powered intelligent travel assistant built for the internship assignment.
 
+🌐 **Live Demo**: [https://multi-modal-travel-assistant-m6ecuymzrggxchyzvczpap.streamlit.app/](https://multi-modal-travel-assistant-m6ecuymzrggxchyzvczpap.streamlit.app/)
+
 ## 📁 Project Structure
 
 ```
