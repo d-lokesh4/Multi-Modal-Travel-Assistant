@@ -68,55 +68,57 @@ def search_city_info(city: str) -> str:
 
 
 def get_weather_forecast(latitude: float, longitude: float) -> List[Dict]:
-    """Fetch weather forecast from Open-Meteo API."""
-    url = "https://api.open-meteo.com/v1/forecast"
+    """Fetch weather forecast from Tomorrow.io API."""
+    tomorrow_api_key = os.getenv("TOMORROW_API_KEY")
+    
+    if not tomorrow_api_key:
+        print("✗ Tomorrow.io API key not found")
+        return [{"date": f"2025-12-{12+i}", "temp_max": 20+i, "temp_min": 10+i, "precipitation": 0} for i in range(7)]
+    
+    url = "https://api.tomorrow.io/v4/weather/forecast"
     params = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
-        "timezone": "auto",
-        "forecast_days": 7
+        "location": f"{latitude},{longitude}",
+        "timesteps": "1d",
+        "units": "metric",
+        "apikey": tomorrow_api_key
     }
     
     try:
-        print(f"Fetching weather for coordinates: ({latitude}, {longitude})")
+        print(f"Fetching weather from Tomorrow.io for coordinates: ({latitude}, {longitude})")
         response = requests.get(url, params=params, timeout=30)
-        print(f"Weather API status code: {response.status_code}")
+        print(f"Tomorrow.io API status code: {response.status_code}")
         response.raise_for_status()
         data = response.json()
-        print(f"Weather API response keys: {data.keys()}")
         
         # Format the forecast data
         forecast = []
-        daily = data.get("daily", {})
-        dates = daily.get("time", [])
-        temp_max = daily.get("temperature_2m_max", [])
-        temp_min = daily.get("temperature_2m_min", [])
-        precipitation = daily.get("precipitation_sum", [])
+        timelines = data.get("timelines", {}).get("daily", [])
         
-        print(f"Got {len(dates)} days of weather data")
+        print(f"Got {len(timelines)} days of weather data from Tomorrow.io")
         
-        for i in range(min(7, len(dates))):
+        for i, day in enumerate(timelines[:7]):
+            values = day.get("values", {})
+            date = day.get("time", "")[:10]  # Extract YYYY-MM-DD
+            
             forecast.append({
-                "date": dates[i],
-                "temp_max": temp_max[i],
-                "temp_min": temp_min[i],
-                "precipitation": precipitation[i]
+                "date": date,
+                "temp_max": round(values.get("temperatureMax", 20), 1),
+                "temp_min": round(values.get("temperatureMin", 10), 1),
+                "precipitation": round(values.get("precipitationSum", 0), 1)
             })
         
-        print(f"✓ Successfully fetched {len(forecast)} days of weather forecast")
+        print(f"✓ Successfully fetched {len(forecast)} days of weather forecast from Tomorrow.io")
         return forecast
     except requests.exceptions.Timeout as e:
-        print(f"✗ Weather API timeout after 30s: {e}")
-        # Return mock 7-day data if API times out
+        print(f"✗ Tomorrow.io API timeout after 30s: {e}")
         return [{"date": f"2025-12-{12+i}", "temp_max": 20+i, "temp_min": 10+i, "precipitation": 0} for i in range(7)]
     except requests.exceptions.RequestException as e:
-        print(f"✗ Weather API request error: {e}")
-        # Return mock 7-day data if API fails
+        print(f"✗ Tomorrow.io API request error: {e}")
+        if hasattr(e.response, 'text'):
+            print(f"Response: {e.response.text}")
         return [{"date": f"2025-12-{12+i}", "temp_max": 20+i, "temp_min": 10+i, "precipitation": 0} for i in range(7)]
     except Exception as e:
         print(f"✗ Unexpected error fetching weather: {type(e).__name__}: {e}")
-        # Return mock 7-day data if API fails
         return [{"date": f"2025-12-{12+i}", "temp_max": 20+i, "temp_min": 10+i, "precipitation": 0} for i in range(7)]
 
 

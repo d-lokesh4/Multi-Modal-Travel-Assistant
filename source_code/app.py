@@ -44,7 +44,7 @@ def main():
         "- **Vector Store Cities**: Paris, Tokyo, New York\n"
         "- **Other Cities**: Fetched via web search\n\n"
         "Features:\n"
-        "- Real-time weather forecast (Open-Meteo)\n"
+        "- Real-time weather forecast (Tomorrow.io)\n"
         "- City images\n"
         "- Interactive weather charts"
     )
