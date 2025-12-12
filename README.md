@@ -68,4 +68,3 @@ See [documentation/README.md](documentation/README.md) for detailed architecture
 
 ---
 
-**Assignment Completed**: All requirements from the internship assignment have been implemented with clean, minimal code.
