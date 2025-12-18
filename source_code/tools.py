@@ -2,7 +2,8 @@
 import requests
 from datetime import datetime
 from typing import List, Dict
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import os
 import base64
 import io
@@ -51,20 +52,34 @@ def search_city_info(city: str) -> str:
     Include information about famous landmarks, culture, cuisine, and what makes it special. 
     Be informative and engaging."""
     
-    # Try gemini-2.5-flash first
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        print(f"gemini-2.5-flash failed: {e}")
-        print(f"Attempting DeepSeek fallback with prompt: {prompt}")
-        
-        
-        # Final fallback - always return a valid string
-        print(f"Using generic fallback for {city}")
-        return f"{city} is a vibrant city with rich culture, fascinating history, and world-class attractions. It offers visitors unique experiences through its landmarks, cuisine, and local traditions that make it a must-visit destination."
+    # Try multiple Gemini models in order of preference
+    models_to_try = ['gemini-3-flash-preview', 'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro']
+    
+    for model_name in models_to_try:
+        try:
+            print(f"Trying {model_name}...")
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            print(f"✓ Successfully fetched summary using {model_name}")
+            return response.text.strip()
+        except Exception as e:
+            error_msg = str(e)
+            print(f"{model_name} failed: {error_msg[:100]}...")
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                print(f"Quota exceeded for {model_name}, trying next model...")
+                continue
+            elif "404" in error_msg or "NOT_FOUND" in error_msg:
+                print(f"Model {model_name} not found, trying next...")
+                continue
+            else:
+                continue
+    
+    # Final fallback - always return a valid string
+    print(f"All Gemini models failed, using generic fallback for {city}")
+    return f"{city} is a vibrant city with rich culture, fascinating history, and world-class attractions. It offers visitors unique experiences through its landmarks, cuisine, and local traditions that make it a must-visit destination."
 
 
 def get_weather_forecast(latitude: float, longitude: float) -> List[Dict]:
@@ -132,16 +147,23 @@ def generate_city_images(city: str) -> List[str]:
         search_terms = [f"{city} landmark", f"{city} cityscape", f"{city} architecture", f"{city} street"]
         
         if gemini_key:
-            try:
-                genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel('gemini-2.5-flash')
-                prompt = f"List 4 famous landmarks or iconic places in {city}, separated by commas. Just the names."
-                response = model.generate_content(prompt)
-                landmarks = [term.strip() for term in response.text.split(',')[:4]]
-                if len(landmarks) == 4:
-                    search_terms = [f"{city} {landmark}" for landmark in landmarks]
-            except Exception as e:
-                print(f"Gemini search term generation: {e}")
+            models_to_try = ['gemini-3-flash-preview', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']
+            for model_name in models_to_try:
+                try:
+                    client = genai.Client(api_key=gemini_key)
+                    prompt = f"List 4 famous landmarks or iconic places in {city}, separated by commas. Just the names."
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt
+                    )
+                    landmarks = [term.strip() for term in response.text.split(',')[:4]]
+                    if len(landmarks) == 4:
+                        search_terms = [f"{city} {landmark}" for landmark in landmarks]
+                        print(f"✓ Generated search terms using {model_name}")
+                        break
+                except Exception as e:
+                    print(f"Gemini ({model_name}) search term generation failed: {str(e)[:80]}...")
+                    continue
         
         images = []
         
@@ -191,20 +213,70 @@ def get_city_coordinates(city: str) -> tuple:
         data = city_data["data"]
         return (data["latitude"], data["longitude"])
     
-    # For cities not in database, use Open-Meteo geocoding
+    # For cities not in database, use Open-Meteo geocoding with better filtering
     try:
         url = "https://geocoding-api.open-meteo.com/v1/search"
-        params = {"name": city, "count": 1, "language": "en", "format": "json"}
+        params = {"name": city, "count": 10, "language": "en", "format": "json"}
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
         if data.get("results"):
-            result = data["results"][0]
+            results = data["results"]
+            
+            # First, filter for exact name matches (case-insensitive)
+            city_lower = city.lower().strip()
+            exact_matches = [r for r in results if r.get('name', '').lower() == city_lower]
+            
+            # If we have exact matches, use only those
+            if exact_matches:
+                results = exact_matches
+                print(f"Found {len(exact_matches)} exact match(es) for '{city}'")
+            
+            # Known tourist regions/states that should be prioritized (for disambiguating cities)
+            tourist_regions = [
+                'Himachal Pradesh', 'Uttarakhand', 'Goa', 'Kerala', 'Rajasthan',
+                'Kashmir', 'Sikkim', 'Meghalaya', 'Bali', 'Tuscany', 'Provence',
+                'Bavaria', 'Tyrol', 'Queensland', 'California', 'Hawaii'
+            ]
+            
+            # Prioritize results by feature_code: PPLC (capital) > PPLA (state capital) > PPLA2 > PPL
+            priority_codes = ['PPLC', 'PPLA', 'PPLA2', 'PPLA3', 'PPL']
+            
+            # For each priority code, check tourist regions first, then by population
+            for code in priority_codes:
+                code_matches = [r for r in results if r.get('feature_code') == code]
+                if code_matches:
+                    # First, prioritize known tourist regions
+                    tourist_matches = [r for r in code_matches if r.get('admin1', '') in tourist_regions]
+                    if tourist_matches:
+                        # Among tourist regions, prefer higher admin level (PPLA > PPL)
+                        tourist_matches.sort(key=lambda x: x.get('population', 0), reverse=True)
+                        result = tourist_matches[0]
+                        print(f"✓ Found {city} (tourist destination): {result.get('name')}, {result.get('admin1', '')}, {result.get('country')} ({result['latitude']}, {result['longitude']}) - Feature: {code}")
+                        return (result["latitude"], result["longitude"])
+                    
+                    # Otherwise, use highest population for this feature code
+                    code_matches.sort(key=lambda x: x.get('population', 0), reverse=True)
+                    result = code_matches[0]
+                    print(f"✓ Found {city}: {result.get('name')}, {result.get('admin1', '')}, {result.get('country')} ({result['latitude']}, {result['longitude']}) - Feature: {code}, Pop: {result.get('population', 0):,}")
+                    return (result["latitude"], result["longitude"])
+            
+            # If no priority match, use highest population
+            populated_results = [r for r in results if r.get('population', 0) > 0]
+            if populated_results:
+                populated_results.sort(key=lambda x: x.get('population', 0), reverse=True)
+                result = populated_results[0]
+                print(f"✓ Found {city}: {result.get('name')}, {result.get('admin1', '')}, {result.get('country')} ({result['latitude']}, {result['longitude']}) - Pop: {result.get('population', 0):,}")
+                return (result["latitude"], result["longitude"])
+            
+            # Final fallback: use first result
+            result = results[0]
+            print(f"✓ Using first result for {city}: {result.get('name')}, {result.get('admin1', '')}, {result.get('country')} ({result['latitude']}, {result['longitude']})")
             return (result["latitude"], result["longitude"])
     except Exception as e:
-        print(f"Error geocoding city: {e}")
+        print(f"✗ Error geocoding city: {e}")
     
     # Default fallback (Paris coordinates)
+    print(f"✗ Using default coordinates for {city}")
     return (48.8566, 2.3522)
-
